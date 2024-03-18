@@ -23,7 +23,6 @@ SET(ROS_BUILD_SHARED_LIBS false)
 
 FIND_PACKAGE(Eigen3 REQUIRED)
 FIND_PACKAGE(OpenCV REQUIRED)
-FIND_PACKAGE(manif REQUIRED)
 
 MESSAGE(STATUS "ROS-Overrride Build Type: ${CMAKE_BUILD_TYPE}")
 MESSAGE(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
@@ -38,7 +37,6 @@ ADD_SUBDIRECTORY(src/shared)
 INCLUDE_DIRECTORIES(src/shared)
 INCLUDE_DIRECTORIES(src)
 INCLUDE_DIRECTORIES(${OpenCV_INCLUDE_DIRS})
-INCLUDE_DIRECTORIES(${manif_INCLUDE_DIRS})
 INCLUDE_DIRECTORIES(${Eigen3_INCLUDE_DIRS})
 
 ROSBUILD_ADD_EXECUTABLE(executor
@@ -46,4 +44,4 @@ ROSBUILD_ADD_EXECUTABLE(executor
                         src/executor/executor.cc
                         src/executor/motion.cc)
 
-TARGET_LINK_LIBRARIES(executor ${libs} ${OpenCV_LIBS} ${Eigen3_LIBS} ${manif_LIBS})
+TARGET_LINK_LIBRARIES(executor ${libs} ${OpenCV_LIBS} ${Eigen3_LIBS})

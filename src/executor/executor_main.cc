@@ -10,7 +10,6 @@
 #include "gflags/gflags.h"
 #include "eigen3/Eigen/Dense"
 #include "eigen3/Eigen/Geometry"
-#include "amrl_msgs/Localization2DMsg.h"
 #include "gflags/gflags.h"
 #include "ros/ros.h"
 #include "shared/ros/ros_helpers.h"
