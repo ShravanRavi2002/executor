@@ -37,7 +37,7 @@ class Executor {
 
         const double FRAME_PERIOD = 1.0 / 20.0;
         const double DRIVE_LATENCY = 0.1;
-        const double WAYPOINT_LOC_THRESHOLD = 0.1;
+        const double WAYPOINT_LOC_THRESHOLD = 0.25;
         const double WAYPOINT_ANGLE_THRESHOLD = 0.25 * M_PI;
 
 
@@ -56,6 +56,8 @@ class Executor {
 
         std::vector<waypoint> trajectory_;
         size_t trajectory_index_;
+
+        std::ofstream robot_loc_file;
 
 };
 

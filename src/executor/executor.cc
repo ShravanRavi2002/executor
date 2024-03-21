@@ -35,6 +35,7 @@ void Executor::UpdateOdometry(const Eigen::Vector2f& loc,
 
     trajectory_odom_start_ = odom_start_loc_;
     trajectory_odom_angle_start_ = odom_start_angle_;
+    robot_loc_file.open("trajectory_loc.txt");
     return;
   }
   odom_loc_ = vector2f(loc.x(), loc.y());
@@ -97,8 +98,8 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     robot_vel = robot_vel.rotate(robot_angle);
 
 
-    const AccelLimits& trans_limit = AccelLimits(1.0, 1.0, 0.5);
-    const AccelLimits& ang_limit = AccelLimits(1.0, 1.0, 0.5);
+    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 1.5);
+    const AccelLimits& ang_limit = AccelLimits(3 * M_PI, 1.5 * M_PI, 3 * M_PI);
 
     // Angular velocity command for the next frame period.
 
@@ -137,11 +138,55 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
         0.0,
         angle_time,
         NULL);
+
+    // If there is a time difference of more than a frame period between
+  // translation and angular motions, slow down the faster of the two until the
+  // times match.
+  const bool relax_trans = (trans_time < angle_time - FRAME_PERIOD);
+  const bool relax_angle = (angle_time < trans_time - FRAME_PERIOD);
+  if (false && (relax_angle || relax_trans)) {
+    AccelLimits scaled_trans_limit = trans_limit;
+    AccelLimits scaled_ang_limit = ang_limit;
+    static const float ScaleStep = 0.05;
+    for (float scale = 1.0;
+        scale > 0.0 &&
+        ((relax_trans && (trans_time < angle_time - FRAME_PERIOD)) ||
+        (relax_angle && (angle_time < trans_time - FRAME_PERIOD)));
+        scale -= ScaleStep) {
+      if (relax_angle) {
+        scaled_ang_limit = ang_limit * scale;
+        ang_cmd = CalcMotion1D(
+            scaled_ang_limit,
+            FRAME_PERIOD + DRIVE_LATENCY,
+            ang_delta,
+            robot_ang_vel,
+            0.0,
+            angle_time,
+            NULL);
+      } else if (relax_trans) {
+        scaled_trans_limit = trans_limit * scale;
+        trans_cmd = CalcMotion2D(
+            scaled_trans_limit,
+            FRAME_PERIOD + DRIVE_LATENCY,
+            robot_loc,
+            robot_vel,
+            target_loc,
+            vector2f(0,0),
+            trans_time,
+            frame,
+            NULL,
+            NULL);
+      }
+    }
+  }
+  trans_cmd = trans_cmd.rotate(-robot_angle);
     std::vector<float> ret{trans_cmd[0], trans_cmd[1], ang_cmd};
     return ret;
 }
 
 void Executor::Run() {
+
+  // cout << "Running" << endl;
 
     if (!trajectory_started_) {
       if (! (odom_initialized_ && trajectory_set_)) return;
@@ -166,25 +211,31 @@ void Executor::Run() {
     if (trajectory_index_ == trajectory_.size()) {
       trajectory_started_ = false;
       trajectory_set_ = false;
+      robot_loc_file.close();
     }
 
     waypoint target = trajectory_[trajectory_index_];
 
+    std::cout << "Current Loc: " << "(" << relative_loc[0] << " " << relative_loc[1] << ")" << " Angle: " << relative_angle  << std::endl;
+
+    robot_loc_file << relative_loc[0] << "," << relative_loc[1] << "," << relative_angle << std::endl;
+
+    std::cout << "Goal Loc: " << "(" << (target.loc - relative_loc)[0] << " " << (target.loc - relative_loc)[1] << ")" << " Angle: " << angle_diff(target.theta, relative_angle)  << std::endl;
     std::vector<float> cmds = Run2dTOC(target.loc, target.theta);
 
     std::cout << "Cmds: " << "x: " << cmds[0] << " y: " << cmds[1] << " t: " << cmds[2] << std::endl;
     std::cout << "Target Loc: " << "(" << target.loc[0] << " " << target.loc[1] << ")" << " Angle: " << target.theta << std::endl;
 
 
-    // drive_msg_.velocity_x = cmds[0];
-    // drive_msg_.velocity_y = cmds[1];
-    // drive_msg_.velocity_r = cmds[2];
-    // drive_msg_.transMaxAcceleration = 1.0;
-    // drive_msg_.transMaxDeceleration = 1.0;
-    // drive_msg_.transMaxVelocity = 1.5;
-    // drive_msg_.rotMaxAcceleration = 3 * M_PI;
-    // drive_msg_.rotMaxDeceleration = 1.5 * M_PI;
-    // drive_msg_.rotMaxVelocity = 3 * M_PI;
+    drive_msg_.velocity_x = cmds[0];
+    drive_msg_.velocity_y = cmds[1];
+    drive_msg_.velocity_r = cmds[2];
+    drive_msg_.transMaxAcceleration = 1.0;
+    drive_msg_.transMaxDeceleration = 1.0;
+    drive_msg_.transMaxVelocity = 1.5;
+    drive_msg_.rotMaxAcceleration = 3 * M_PI;
+    drive_msg_.rotMaxDeceleration = 1.5 * M_PI;
+    drive_msg_.rotMaxVelocity = 3 * M_PI;
 
     drive_msg_.header.stamp = ros::Time::now();
     drive_pub_.publish(drive_msg_);

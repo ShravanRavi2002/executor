@@ -20,7 +20,7 @@
 
 using namespace executor;
 
-const float DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS = 0.50;
+const float DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS = 1.00;
 Executor* executor_ = nullptr;
 
 std::vector<executor::waypoint> generate_random_trajectory(const waypoint& start, const waypoint& end, vector2f max_deviation_from_start) {
@@ -33,7 +33,7 @@ std::vector<executor::waypoint> generate_random_trajectory(const waypoint& start
     waypoint current_point = start;
 
     while (! done) {
-        float angle_offset = ((float) rand() / RAND_MAX - 0.5) * M_PI;
+        float angle_offset = ((float) rand() / RAND_MAX - 0.5) * M_PI / 2;
         float angle_to_goal = (end.loc - current_point.loc).angle();
         float angle_to_next_waypoint = angle_to_goal + angle_offset;
 
@@ -62,6 +62,7 @@ std::vector<executor::waypoint> generate_random_trajectory(const waypoint& start
             done = true;
         } 
     }
+
     return waypoints;
 }
 
@@ -90,9 +91,11 @@ int main(int argc, char** argv) {
   vector2f bounds = vector2f(5.0, 7.0);
   auto trajectory = generate_random_trajectory(start, end, bounds);
   std::cout << "Generated Trajectory:" << std::endl;
+  std::ofstream traj_file("waypoints.txt");
   for (size_t i = 0; i < trajectory.size(); ++i) {
-      std::cout << "Pose " << i << ": x = " << trajectory[i].loc[0] << ", y = " << trajectory[i].loc[1] << ", theta = " << trajectory[i].theta << std::endl;
+      traj_file << trajectory[i].loc[0] << "," << trajectory[i].loc[1] << "," << trajectory[i].theta << std::endl;
   }
+  traj_file.close();
 
     ros::Subscriber odom_sub =
         n.subscribe("/odom", 1, &OdometryCallback);
