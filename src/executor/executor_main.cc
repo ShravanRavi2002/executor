@@ -20,28 +20,48 @@
 
 using namespace executor;
 
-const double DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS = 0.50;
+const float DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS = 0.50;
 Executor* executor_ = nullptr;
 
-std::vector<executor::waypoint> generate_straight_trajectory(Eigen::Vector2d start, Eigen::Vector2d end) {
+std::vector<executor::waypoint> generate_random_trajectory(const waypoint& start, const waypoint& end, vector2f max_deviation_from_start) {
 
     std::vector<executor::waypoint> waypoints;
+    std::srand(std::time(nullptr));
 
-    // Compute the direction vector from start to end
-    Eigen::Vector2d direction = end - start;
-    double total_distance = direction.norm();
-    direction.normalize();
 
-    // Calculate the number of intermediate points
-    int num_points = static_cast<int>(total_distance / DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS);
+    bool done = false;
+    waypoint current_point = start;
 
-    // Generate intermediate points along the straight line
-    for (int i = 0; i <= num_points; i++) {
-        Eigen::Vector2d intermediate_point = start + direction * (DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS * i);
-        executor::waypoint pose(intermediate_point.x(), intermediate_point.y(), 0.0); // Assuming zero orientation for simplicity
-        waypoints.push_back(pose);
+    while (! done) {
+        float angle_offset = ((float) rand() / RAND_MAX - 0.5) * M_PI;
+        float angle_to_goal = (end.loc - current_point.loc).angle();
+        float angle_to_next_waypoint = angle_to_goal + angle_offset;
+
+        vector2f intermediate_loc = vector2f(current_point.loc[0] + std::cos(angle_to_next_waypoint) * DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS, 
+                                             current_point.loc[1] + std::sin(angle_to_next_waypoint) * DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS);
+
+        vector2f drift = start.loc - intermediate_loc;
+        while (std::abs(drift[0]) - max_deviation_from_start[0] > 0 || std::abs(drift[1]) - max_deviation_from_start[1] > 0) {
+            angle_offset = ((float) rand() / RAND_MAX - 0.5) * M_PI;
+            angle_to_next_waypoint = angle_to_goal + angle_offset;
+            intermediate_loc = vector2f(current_point.loc[0] + std::cos(angle_to_goal) * DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS, 
+                                        current_point.loc[1] + std::sin(angle_to_goal) * DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS);
+        }
+
+        waypoint intermediate_point = waypoint(intermediate_loc, 0.0);
+        current_point = intermediate_point;
+
+
+        if (! waypoints.empty()) {
+            waypoints.back().theta = angle_to_next_waypoint;
+        }
+        waypoints.push_back(intermediate_point);
+
+        if ((end.loc - intermediate_loc).length() < DISTANCE_BETWEEN_TRAJECTORY_WAYPOINTS) {
+            waypoints.push_back(end);
+            done = true;
+        } 
     }
-
     return waypoints;
 }
 
@@ -65,14 +85,19 @@ int main(int argc, char** argv) {
 
   executor_ = new Executor(&n);
 
-  auto trajectory = generate_straight_trajectory(Eigen::Vector2d(0, 0), Eigen::Vector2d(10.0, 0));
+  waypoint start = waypoint(vector2f(0.0, 0.0), 0.0);
+  waypoint end = waypoint(vector2f(5.0, 0.0), 0.0);
+  vector2f bounds = vector2f(5.0, 7.0);
+  auto trajectory = generate_random_trajectory(start, end, bounds);
   std::cout << "Generated Trajectory:" << std::endl;
-    for (size_t i = 0; i < trajectory.size(); ++i) {
-        std::cout << "Pose " << i << ": x = " << trajectory[i].loc.x() << ", y = " << trajectory[i].loc.y() << ", theta = " << trajectory[i].theta << std::endl;
-    }
+  for (size_t i = 0; i < trajectory.size(); ++i) {
+      std::cout << "Pose " << i << ": x = " << trajectory[i].loc[0] << ", y = " << trajectory[i].loc[1] << ", theta = " << trajectory[i].theta << std::endl;
+  }
 
     ros::Subscriber odom_sub =
         n.subscribe("/odom", 1, &OdometryCallback);
+
+  executor_->SetTrajectory(trajectory);
 
   RateLoop loop(20.0);
   while (ros::ok()) {

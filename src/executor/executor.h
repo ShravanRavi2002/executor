@@ -11,11 +11,11 @@
 namespace executor {
 
 typedef struct waypoint {
-    Eigen::Vector2d loc;
-    double theta;
+    vector2f loc;
+    float theta;
 
-    waypoint(double x, double y, double theta) : loc(x, y), theta(theta) {}
-    waypoint(const Eigen::Vector2d& loc, double theta) : loc(loc), theta(theta) {}
+    waypoint(float x, float y, float theta) : loc(x, y), theta(theta) {}
+    waypoint(const vector2f& loc, float theta) : loc(loc), theta(theta) {}
 
 } waypoint;
 
@@ -29,12 +29,17 @@ class Executor {
                                 float angle,
                                 const Eigen::Vector2f& vel,
                                 float ang_vel);
+        waypoint FetchNextGoal();
+        void SetTrajectory(std::vector<waypoint> trajectory);
         // void InterpolateTrajectoryFromWayPoints(std::vector<waypoint> waypoints);
 
     private:
 
         const double FRAME_PERIOD = 1.0 / 20.0;
         const double DRIVE_LATENCY = 0.1;
+        const double WAYPOINT_LOC_THRESHOLD = 0.1;
+        const double WAYPOINT_ANGLE_THRESHOLD = 0.25 * M_PI;
+
 
         vector2f robot_vel_;
         float robot_ang_vel_;
@@ -44,12 +49,13 @@ class Executor {
         float odom_angle_;
         bool odom_initialized_ = false;
 
-        bool target_set = false;
-        vector2f target_loc_;
-        float target_angle_;
+        bool trajectory_set_ = false;
+        bool trajectory_started_ = false;
+        vector2f trajectory_odom_start_;
+        float trajectory_odom_angle_start_;
 
-        vector2f trajectory_odom_start;
-        float trajectory_odom_angle_start;
+        std::vector<waypoint> trajectory_;
+        size_t trajectory_index_;
 
 };
 

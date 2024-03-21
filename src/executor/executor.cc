@@ -33,13 +33,13 @@ void Executor::UpdateOdometry(const Eigen::Vector2f& loc,
     odom_loc_ = vector2f(loc.x(), loc.y());
     odom_angle_ = angle;
 
-    trajectory_odom_start = odom_start_loc_;
-    trajectory_odom_angle_start = odom_start_angle_;
+    trajectory_odom_start_ = odom_start_loc_;
+    trajectory_odom_angle_start_ = odom_start_angle_;
     return;
   }
   odom_loc_ = vector2f(loc.x(), loc.y());
   odom_angle_ = angle;
-  cout << "Loc: " << "(" << loc.x() << " " << loc.y() << ")" << " Angle: " << angle << endl;
+  // cout << "Loc: " << "(" << loc.x() << " " << loc.y() << ")" << " Angle: " << angle << endl;
 }
 
 
@@ -54,6 +54,12 @@ void Executor::UpdateOdometry(const Eigen::Vector2f& loc,
 //     spline_traj = gsl_spline_alloc(gsl_interp_cspline, waypoints.size());
 //     gsl_spline_init(spline_traj, x.data(), y.data(), waypoints.size());
 // }
+
+void Executor::SetTrajectory(std::vector<waypoint> trajectory) {
+  std::cout << "Trajectory set with " << trajectory.size() << " waypoints." << std::endl;
+  trajectory_ = trajectory;
+  trajectory_set_ = true;
+}
 
 std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& target_angle) {
 
@@ -70,13 +76,13 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     robot_loc = odom_loc_;
     robot_angle = odom_angle_;
     // Set starting pose to starting odometry pose.
-    start_loc = trajectory_odom_start;
-    start_angle = trajectory_odom_angle_start;
+    start_loc = trajectory_odom_start_;
+    start_angle = trajectory_odom_angle_start_;
 
 
     robot_loc = (robot_loc - start_loc).rotate(-start_angle);
     robot_angle = angle_diff(robot_angle, start_angle);
-    cout << "Start angle: " <<  start_angle << endl;
+    // cout << "Start angle: " <<  start_angle << endl;
 
     // Current robot velocity in the trajectory coordinates.
     vector2f robot_vel(0, 0);
@@ -122,7 +128,7 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     double angle_time(0);
     // The delta between the current and the target angle.
     float ang_delta = angle_diff(target_angle, robot_angle);
-    cout << "ang delta: " << ang_delta << endl;
+    // cout << "ang delta: " << ang_delta << endl;
     float ang_cmd = CalcMotion1D(
         ang_limit,
         FRAME_PERIOD + DRIVE_LATENCY,
@@ -137,28 +143,48 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
 
 void Executor::Run() {
 
-    if (!target_set) {
-      if (!odom_initialized_) return;
-      target_loc_ = vector2f(odom_start_loc_[0] + 1.0, odom_start_loc_[1]);
-      target_angle_ = odom_start_angle_;
-      target_set = true;
+    if (!trajectory_started_) {
+      if (! (odom_initialized_ && trajectory_set_)) return;
+      trajectory_odom_angle_start_ = odom_angle_;
+      trajectory_odom_start_ = odom_loc_;
+      trajectory_index_ = 0;
+      trajectory_started_ = true;
     }
 
-    std::vector<float> cmds = Run2dTOC(target_loc_ - trajectory_odom_start, angle_diff(target_angle_, trajectory_odom_angle_start));
+    vector2f relative_loc = odom_loc_ - trajectory_odom_start_;
+    float relative_angle = angle_diff(odom_angle_, trajectory_odom_angle_start_);
+
+    while (trajectory_index_ < trajectory_.size() &&
+      (relative_loc - trajectory_[trajectory_index_].loc).sqlength() <
+      sq(WAYPOINT_LOC_THRESHOLD) &&
+      angle_dist(relative_angle, trajectory_[trajectory_index_].theta) <
+      WAYPOINT_ANGLE_THRESHOLD) {
+
+      trajectory_index_++;
+    }
+
+    if (trajectory_index_ == trajectory_.size()) {
+      trajectory_started_ = false;
+      trajectory_set_ = false;
+    }
+
+    waypoint target = trajectory_[trajectory_index_];
+
+    std::vector<float> cmds = Run2dTOC(target.loc, target.theta);
 
     std::cout << "Cmds: " << "x: " << cmds[0] << " y: " << cmds[1] << " t: " << cmds[2] << std::endl;
-    std::cout << "Target Loc: " << "(" << target_loc_[0] << " " << target_loc_[1] << ")" << " Angle: " << target_angle_ << std::endl;
+    std::cout << "Target Loc: " << "(" << target.loc[0] << " " << target.loc[1] << ")" << " Angle: " << target.theta << std::endl;
 
 
-    drive_msg_.velocity_x = cmds[0];
-    drive_msg_.velocity_y = cmds[1];
-    drive_msg_.velocity_r = cmds[2];
-    drive_msg_.transMaxAcceleration = 1.0;
-    drive_msg_.transMaxDeceleration = 1.0;
-    drive_msg_.transMaxVelocity = 1.5;
-    drive_msg_.rotMaxAcceleration = 3 * M_PI;
-    drive_msg_.rotMaxDeceleration = 1.5 * M_PI;
-    drive_msg_.rotMaxVelocity = 3 * M_PI;
+    // drive_msg_.velocity_x = cmds[0];
+    // drive_msg_.velocity_y = cmds[1];
+    // drive_msg_.velocity_r = cmds[2];
+    // drive_msg_.transMaxAcceleration = 1.0;
+    // drive_msg_.transMaxDeceleration = 1.0;
+    // drive_msg_.transMaxVelocity = 1.5;
+    // drive_msg_.rotMaxAcceleration = 3 * M_PI;
+    // drive_msg_.rotMaxDeceleration = 1.5 * M_PI;
+    // drive_msg_.rotMaxVelocity = 3 * M_PI;
 
     drive_msg_.header.stamp = ros::Time::now();
     drive_pub_.publish(drive_msg_);
