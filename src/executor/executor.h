@@ -31,6 +31,8 @@ class Executor {
                                 float ang_vel);
         waypoint FetchNextGoal();
         void SetTrajectory(std::vector<waypoint> trajectory);
+        void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud, float time);
+        waypoint ReduceAccuationErrorICP();
         // void InterpolateTrajectoryFromWayPoints(std::vector<waypoint> waypoints);
 
     private:
@@ -57,8 +59,14 @@ class Executor {
         std::vector<waypoint> trajectory_;
         size_t trajectory_index_;
 
-        std::ofstream robot_loc_file;
+        std::vector<Eigen::Vector2f> point_cloud_;
+        std::vector<Eigen::Vector2f> prev_key_frame_scan_;
+        vector2f prev_key_frame_loc_;
+        float prev_key_frame_angle_;
+        cv::Matx44d start_to_prev_key_frame;
+        cv::ppf_match_3d::ICP* icp_solver_ = new cv::ppf_match_3d::ICP(1000, 0.01);
 
+        std::ofstream robot_loc_file;
 };
 
 

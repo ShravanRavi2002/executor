@@ -14,6 +14,7 @@
 #include "ros/ros.h"
 #include "shared/ros/ros_helpers.h"
 #include "shared/util/timer.h"
+#include "sensor_msgs/LaserScan.h"
 #include "nav_msgs/Odometry.h"
 
 #include "executor.h"
@@ -77,6 +78,28 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
       msg.twist.twist.angular.z);
 }
 
+void LaserCallback(const sensor_msgs::LaserScan& msg) {
+  // Location of the laser on the robot. Assumes the laser is forward-facing. (UT AUTOMATA)
+  // const Vector2f kLaserLoc(0.2, 0);
+
+  std::vector<Eigen::Vector2f> point_cloud_;
+  // TODO Convert the LaserScan to a point cloud
+  // The LaserScan parameters are accessible as follows:
+  // msg.angle_increment // Angular increment between subsequent rays
+  // msg.angle_max // Angle of the first ray
+  // msg.angle_min // Angle of the last ray
+  // msg.range_max // Maximum observable range
+  // msg.range_min // Minimum observable range
+  // msg.ranges[i] // The range of the i'th ray
+  int index = 0;
+  for(float angle = msg.angle_min; angle <= msg.angle_max; angle += msg.angle_increment) {
+    float x = msg.ranges[index] * std::cos(angle);
+    float y = msg.ranges[index] * std::sin(angle);
+    index++;
+    point_cloud_.push_back({x, y});
+  }
+  executor_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
+}
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
@@ -99,6 +122,8 @@ int main(int argc, char** argv) {
 
     ros::Subscriber odom_sub =
         n.subscribe("/odom", 1, &OdometryCallback);
+    ros::Subscriber laser_sub =
+      n.subscribe("/Cobot/Laser", 1, &LaserCallback);
 
   executor_->SetTrajectory(trajectory);
 
