@@ -6,7 +6,7 @@ MESSAGE(STATUS "Using compiler: ${CMAKE_CXX_COMPILER}")
 MESSAGE(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 MESSAGE(STATUS "Arch: ${CMAKE_SYSTEM_PROCESSOR}")
 
-SET(CMAKE_CXX_FLAGS "-std=c++11 -Wall -Werror")
+SET(CMAKE_CXX_FLAGS "-std=c++17 -Wall -Werror")
 
 IF(${CMAKE_BUILD_TYPE} MATCHES "Release")
   MESSAGE(STATUS "Additional Flags for Release mode")
@@ -23,6 +23,7 @@ SET(ROS_BUILD_SHARED_LIBS false)
 
 FIND_PACKAGE(Eigen3 REQUIRED)
 FIND_PACKAGE(OpenCV REQUIRED)
+FIND_PACKAGE(GTSAM REQUIRED)
 
 MESSAGE(STATUS "ROS-Overrride Build Type: ${CMAKE_BUILD_TYPE}")
 MESSAGE(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
@@ -38,10 +39,11 @@ INCLUDE_DIRECTORIES(src/shared)
 INCLUDE_DIRECTORIES(src)
 INCLUDE_DIRECTORIES(${OpenCV_INCLUDE_DIRS})
 INCLUDE_DIRECTORIES(${Eigen3_INCLUDE_DIRS})
+INCLUDE_DIRECTORIES(${GTSAM_INCLUDE_DIRS})
 
 ROSBUILD_ADD_EXECUTABLE(executor
                         src/executor/executor_main.cc
                         src/executor/executor.cc
                         src/executor/motion.cc)
 
-TARGET_LINK_LIBRARIES(executor ${libs} ${OpenCV_LIBS} ${Eigen3_LIBS})
+TARGET_LINK_LIBRARIES(executor ${libs} ${OpenCV_LIBS} ${Eigen3_LIBS} ${GTSAM_LIBS} gtsam)
