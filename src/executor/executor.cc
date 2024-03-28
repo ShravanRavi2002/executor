@@ -36,7 +36,7 @@ void Executor::UpdateOdometry(const Eigen::Vector2f& loc,
 
     trajectory_odom_start_ = odom_start_loc_;
     trajectory_odom_angle_start_ = odom_start_angle_;
-    robot_loc_file.open("trajectory_loc.txt");
+    robot_loc_file.open("trajectory_loc.csv");
     return;
   }
   odom_loc_ = vector2f(loc.x(), loc.y());
@@ -45,7 +45,7 @@ void Executor::UpdateOdometry(const Eigen::Vector2f& loc,
 }
 
 void Executor::SetTrajectory(std::vector<waypoint> trajectory) {
-  std::cout << "Trajectory set with " << trajectory.size() << " waypoints." << std::endl;
+  // std::cout << "Trajectory set with " << trajectory.size() << " waypoints." << std::endl;
   trajectory_ = trajectory;
   trajectory_set_ = true;
 }
@@ -225,37 +225,56 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
     return;
   }
 
-  cv::Mat src = Transform2DLidarToOpenCVWithNormals(prev_key_frame_scan_, 0.0f);
-  cv::Mat dst = Transform2DLidarToOpenCVWithNormals(cloud, 0.1f);
+  vector2f relative_loc = odom_loc_ - prev_key_frame_loc_;
+  float relative_angle = angle_diff(odom_angle_, prev_key_frame_angle_) * 180 / CV_PI;
+  // cout << "Translation: " << t.norm() << " Angle: " << abs(angle) << " Error: " << error << endl;
+  if (relative_loc.length() > 0.05 || relative_angle > 5.0) {
 
-  double error;
-  cv::Matx44d T;
-  icp_solver_->registerModelToScene(src, dst, error, T);
-  T(2, 3) -= 0.1;
+    std::vector<Eigen::Vector2f> cur_scan;
+    std::vector<Eigen::Vector2f> prev_scan;
+    for (size_t i = 0; i < cloud.size(); i++) {
+      if (prev_key_frame_scan_[i].norm() < 20 && cloud[i].norm() < 20) {
+        prev_scan.push_back(prev_key_frame_scan_[i]);
+        cur_scan.push_back(cloud[i]);
+      }
+    }
 
-  DumpStateToFile(cloud, T, odom_loc_, odom_angle_, prev_key_frame_loc_, prev_key_frame_angle_);
+   
+    cv::Mat src = Transform2DLidarToOpenCVWithNormals(cur_scan, 0.0f);
+    cv::Mat dst = Transform2DLidarToOpenCVWithNormals(prev_scan, 0.1f);
 
-  cv::Matx33d R = T.get_minor<3, 3>(0, 0);
-  
-  cv::Vec3d euler_angles;
-  cv::Rodrigues(R, euler_angles);
-  double angle = euler_angles[2] * 180.0 / CV_PI;
+    double error;
+    cv::Matx44d T;
+    icp_solver_->registerModelToScene(src, dst, error, T);
+    T(2, 3) += 0.1;
 
-  Eigen::Vector2f t(T(0, 3), T(1, 3));
-  cout << "Translation: " << t.norm() << " Angle: " << abs(angle) << " Error: " << error << endl;
-  if (t.norm() > 0.05 || angle > 5.0) {
+    cv::Matx33d R = T.get_minor<3, 3>(0, 0);
+    
+    cv::Vec3d euler_angles;
+    cv::Rodrigues(R, euler_angles);
+    double angle = euler_angles[2];
+    Eigen::Vector2f t(T(0, 3), T(1, 3));
+
+
     prev_key_frame_scan_ = cloud;
     prev_key_frame_loc_ = odom_loc_;
     prev_key_frame_angle_ = odom_angle_;
     start_to_prev_key_frame = start_to_prev_key_frame * T;
-    cout << "Moving key frame" << endl;
-    std::cout << "Transformation:" << std::endl;
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            std::cout << T(i, j) << "\t";
-        }
-        std::cout << std::endl;
-    }
+    // cout << "Moving key frame" << endl;
+    // std::cout << "Transformation:" << std::endl;
+    // for (int i = 0; i < 4; ++i) {
+    //     for (int j = 0; j < 4; ++j) {
+    //         std::cout << T(i, j) << "\t";
+    //     }
+    //     std::cout << std::endl;
+    // }
+
+    DumpStateToFile(cloud, T, odom_loc_, odom_angle_, prev_key_frame_loc_, prev_key_frame_angle_);
+    gtsam::Pose2 relative_motion_from_icp = gtsam::Pose2(t.x(), t.y(), angle);
+    cout << "Adding Constraint: " << relative_motion_from_icp << endl;
+    pose_graph_.add(gtsam::BetweenFactor<gtsam::Pose2>(cur_node_idx, cur_node_idx + 1, relative_motion_from_icp, odometry_noise_));
+    raw_odometry_.insert(cur_node_idx + 1, gtsam::Pose2(odom_loc_[0], odom_loc_[1], odom_angle_));
+    cur_node_idx++;
   }
 }
 
@@ -281,9 +300,37 @@ waypoint Executor::ReduceAccuationErrorICP() {
   return waypoint(true_odom, true_angle);
 }
 
-void Executor::Run() {
+void Executor::OptimizePoseGraph() {
+  // Step 1: Optimize the Factor Graph
+    gtsam::LevenbergMarquardtOptimizer optimizer(pose_graph_, raw_odometry_);
+    gtsam::Values optimizedEstimate = optimizer.optimize();
 
-  // cout << "Running" << endl;
+    // Step 2: Extract Optimized Poses
+    // Assuming the poses are of type Pose2
+    // You need to modify this according to your pose type
+    // Pose2 optimizedPoseCur = optimizedEstimate.at<Pose2>(cur_node_idx);
+    // Pose2 optimizedPoseNext = optimizedEstimate.at<Pose2>(cur_node_idx + 1);
+
+    // Step 3: Write Results to File
+    std::ofstream outputFile("optimized_poses.csv");
+    if (outputFile.is_open()) {
+        // Write optimized poses to the file
+
+        for (int i = 0; i < cur_node_idx; i++) {
+          outputFile << optimizedEstimate.at<gtsam::Pose2>(i) << endl;
+        }
+        outputFile.close();
+    } else {
+        // cout << "Unable to open file for writing!" << endl;
+    }
+
+    // std::ofstream outputGraphFile("optimized_graph.txt");
+    optimizedEstimate.print("Optimized Values:");
+    pose_graph_.print("Pose Graph");
+
+}
+
+void Executor::Run() {
 
     if (!trajectory_started_) {
       if (! (odom_initialized_ && trajectory_set_)) return;
@@ -291,6 +338,8 @@ void Executor::Run() {
       trajectory_odom_start_ = odom_loc_;
       trajectory_index_ = 0;
       trajectory_started_ = true;
+      cur_node_idx = 0;
+      raw_odometry_.insert(cur_node_idx, gtsam::Pose2(odom_loc_[0], odom_loc_[1], odom_angle_));
     }
 
     vector2f relative_loc = odom_loc_ - trajectory_odom_start_;
@@ -308,7 +357,9 @@ void Executor::Run() {
     if (trajectory_index_ == trajectory_.size()) {
       trajectory_started_ = false;
       trajectory_set_ = false;
+      cout << "finished trajectory" << endl;
       robot_loc_file.close();
+      OptimizePoseGraph();
     }
 
     waypoint target = trajectory_[trajectory_index_];
@@ -317,14 +368,14 @@ void Executor::Run() {
 
     robot_loc_file << relative_loc[0] << "," << relative_loc[1] << "," << relative_angle << std::endl;
 
-    std::cout << "Goal Loc: " << "(" << (target.loc - relative_loc)[0] << " " << (target.loc - relative_loc)[1] << ")" << " Angle: " << angle_diff(target.theta, relative_angle)  << std::endl;
+    // std::cout << "Goal Loc: " << "(" << (target.loc - relative_loc)[0] << " " << (target.loc - relative_loc)[1] << ")" << " Angle: " << angle_diff(target.theta, relative_angle)  << std::endl;
     std::vector<float> cmds = Run2dTOC(target.loc, target.theta);
 
-    std::cout << "Cmds: " << "x: " << cmds[0] << " y: " << cmds[1] << " t: " << cmds[2] << std::endl;
-    std::cout << "Target Loc: " << "(" << target.loc[0] << " " << target.loc[1] << ")" << " Angle: " << target.theta << std::endl;
+    // std::cout << "Cmds: " << "x: " << cmds[0] << " y: " << cmds[1] << " t: " << cmds[2] << std::endl;
+    // std::cout << "Target Loc: " << "(" << target.loc[0] << " " << target.loc[1] << ")" << " Angle: " << target.theta << std::endl;
 
-    waypoint error_corrected_point = ReduceAccuationErrorICP();
-    std::cout << "Error Corrected Loc: " << "(" << error_corrected_point.loc[0] << " " << error_corrected_point.loc[1] << ")" << " Angle: " << error_corrected_point.theta << std::endl;
+    // waypoint error_corrected_point = ReduceAccuationErrorICP();
+    // std::cout << "Error Corrected Loc: " << "(" << error_corrected_point.loc[0] << " " << error_corrected_point.loc[1] << ")" << " Angle: " << error_corrected_point.theta << std::endl;
 
     drive_msg_.velocity_x = cmds[0];
     drive_msg_.velocity_y = cmds[1];

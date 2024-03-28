@@ -622,12 +622,12 @@ inline void mzero(data *d,int n)
   memset(d,0,sizeof(data)*n);
 }
 
-#if __GNUC__ >= 3
-# define likely(x) __builtin_expect(!!(x),1)
-# define unlikely(x) __builtin_expect(!!(x),0)
-#else
-# define likely(x) (x)
-# define unlikely(x) (x)
-#endif
+// #if __GNUC__ >= 3
+// # define likely(x) __builtin_expect(!!(x),1)
+// # define unlikely(x) __builtin_expect(!!(x),0)
+// #else
+// # define likely(x) (x)
+// # define unlikely(x) (x)
+// #endif
 
 #endif

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <vector>
+#include <cstdlib>
 
 #include "glog/logging.h"
 #include "gflags/gflags.h"
@@ -101,20 +102,30 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
   executor_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
 }
 
+void exiting() {
+  executor_->OptimizePoseGraph();
+}
+
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
   // Initialize ROS.
   ros::init(argc, argv, "executor", ros::init_options::NoSigintHandler);
   ros::NodeHandle n;
 
+  std::remove("transformation.csv");
+  std::remove("trajectory_loc.csv");
+  std::remove("location.csv");
+  std::remove("scan.csv");
+  std::remove("optimized_poses.csv");
+
   executor_ = new Executor(&n);
 
-  waypoint start = waypoint(vector2f(0.0, 0.0), 0.0);
+  // waypoint start = waypoint(vector2f(0.0, 0.0), 0.0);
   waypoint end = waypoint(vector2f(5.0, 0.0), 0.0);
-  vector2f bounds = vector2f(5.0, 7.0);
-  auto trajectory = generate_random_trajectory(start, end, bounds);
+  // vector2f bounds = vector2f(5.0, 7.0);
+  std::vector<waypoint> trajectory {end};
   std::cout << "Generated Trajectory:" << std::endl;
-  std::ofstream traj_file("waypoints.txt");
+  std::ofstream traj_file("waypoints.csv");
   for (size_t i = 0; i < trajectory.size(); ++i) {
       traj_file << trajectory[i].loc[0] << "," << trajectory[i].loc[1] << "," << trajectory[i].theta << std::endl;
   }
@@ -126,6 +137,7 @@ int main(int argc, char** argv) {
       n.subscribe("/Cobot/Laser", 1, &LaserCallback);
 
   executor_->SetTrajectory(trajectory);
+  std::atexit(exiting);
 
   RateLoop loop(20.0);
   while (ros::ok()) {

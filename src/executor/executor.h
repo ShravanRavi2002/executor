@@ -3,6 +3,13 @@
 #include <opencv2/surface_matching/icp.hpp>
 #include <opencv2/surface_matching/ppf_helpers.hpp>
 
+#include <gtsam/geometry/Pose2.h>
+#include <gtsam/linear/NoiseModel.h>
+#include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+
+
 #include "ros/ros.h"
 #include "motion.h"
 
@@ -33,6 +40,7 @@ class Executor {
         void SetTrajectory(std::vector<waypoint> trajectory);
         void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud, float time);
         waypoint ReduceAccuationErrorICP();
+        void OptimizePoseGraph();
         // void InterpolateTrajectoryFromWayPoints(std::vector<waypoint> waypoints);
 
     private:
@@ -67,6 +75,11 @@ class Executor {
         cv::ppf_match_3d::ICP* icp_solver_ = new cv::ppf_match_3d::ICP(1000, 0.01);
 
         std::ofstream robot_loc_file;
+
+        gtsam::NonlinearFactorGraph pose_graph_;
+        gtsam::Values raw_odometry_;
+        gtsam::noiseModel::Diagonal::shared_ptr odometry_noise_ = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3(0.2, 0.2, 0.1));
+        int cur_node_idx = 1;
 };
 
 
