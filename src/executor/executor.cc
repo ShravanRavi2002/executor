@@ -86,7 +86,7 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     robot_vel = robot_vel.rotate(robot_angle);
 
 
-    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 1.5);
+    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 1.0);
     const AccelLimits& ang_limit = AccelLimits(3 * M_PI, 1.5 * M_PI, 3 * M_PI);
 
     // Angular velocity command for the next frame period.
@@ -228,7 +228,7 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
   vector2f relative_loc = odom_loc_ - prev_key_frame_loc_;
   float relative_angle = angle_diff(odom_angle_, prev_key_frame_angle_) * 180 / CV_PI;
   // cout << "Translation: " << t.norm() << " Angle: " << abs(angle) << " Error: " << error << endl;
-  if (relative_loc.length() > 0.05 || relative_angle > 5.0) {
+  if (relative_loc.length() > 0.15 || relative_angle > 1000.0) {
 
     std::vector<Eigen::Vector2f> cur_scan;
     std::vector<Eigen::Vector2f> prev_scan;
@@ -240,13 +240,13 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
     }
 
    
-    cv::Mat src = Transform2DLidarToOpenCVWithNormals(cur_scan, 0.0f);
-    cv::Mat dst = Transform2DLidarToOpenCVWithNormals(prev_scan, 0.1f);
+    cv::Mat src = Transform2DLidarToOpenCVWithNormals(prev_scan, 0.0f);
+    cv::Mat dst = Transform2DLidarToOpenCVWithNormals(cur_scan, 0.1f);
 
     double error;
     cv::Matx44d T;
     icp_solver_->registerModelToScene(src, dst, error, T);
-    T(2, 3) += 0.1;
+    T(2, 3) -= 0.1;
 
     cv::Matx33d R = T.get_minor<3, 3>(0, 0);
     
@@ -270,7 +270,7 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
     // }
 
     DumpStateToFile(cloud, T, odom_loc_, odom_angle_, prev_key_frame_loc_, prev_key_frame_angle_);
-    gtsam::Pose2 relative_motion_from_icp = gtsam::Pose2(t.x(), t.y(), angle);
+    gtsam::Pose2 relative_motion_from_icp = gtsam::Pose2(-t.x(), -t.y(), -angle);
     cout << "Adding Constraint: " << relative_motion_from_icp << endl;
     pose_graph_.add(gtsam::BetweenFactor<gtsam::Pose2>(cur_node_idx, cur_node_idx + 1, relative_motion_from_icp, odometry_noise_));
     raw_odometry_.insert(cur_node_idx + 1, gtsam::Pose2(odom_loc_[0], odom_loc_[1], odom_angle_));
@@ -382,7 +382,7 @@ void Executor::Run() {
     drive_msg_.velocity_r = cmds[2];
     drive_msg_.transMaxAcceleration = 1.0;
     drive_msg_.transMaxDeceleration = 1.0;
-    drive_msg_.transMaxVelocity = 1.5;
+    drive_msg_.transMaxVelocity = 1.0;
     drive_msg_.rotMaxAcceleration = 3 * M_PI;
     drive_msg_.rotMaxDeceleration = 1.5 * M_PI;
     drive_msg_.rotMaxVelocity = 3 * M_PI;

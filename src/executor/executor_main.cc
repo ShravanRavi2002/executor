@@ -102,8 +102,10 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
   executor_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
 }
 
-void exiting() {
+void exiting(int ting) {
+  cout  << "exiting" << endl;
   executor_->OptimizePoseGraph();
+  std::exit(0);
 }
 
 int main(int argc, char** argv) {
@@ -121,9 +123,16 @@ int main(int argc, char** argv) {
   executor_ = new Executor(&n);
 
   // waypoint start = waypoint(vector2f(0.0, 0.0), 0.0);
-  waypoint end = waypoint(vector2f(5.0, 0.0), 0.0);
+  // waypoint end = waypoint(vector2f(5.0, 0.0), 0.0);
   // vector2f bounds = vector2f(5.0, 7.0);
-  std::vector<waypoint> trajectory {end};
+  // std::vector<waypoint> trajectory = generate_random_trajectory(start, end, bounds);
+  std::vector<waypoint> trajectory {
+    // waypoint(vector2f(1.0, 1.0), 0.0),
+    waypoint(vector2f(2.0, -1.0), 0.0),
+    waypoint(vector2f(3.0, 1.0), 0.0),
+    waypoint(vector2f(4.0, -1.0), 0.0),
+    waypoint(vector2f(5.0, 0.0), 0.0)
+  };
   std::cout << "Generated Trajectory:" << std::endl;
   std::ofstream traj_file("waypoints.csv");
   for (size_t i = 0; i < trajectory.size(); ++i) {
@@ -137,7 +146,7 @@ int main(int argc, char** argv) {
       n.subscribe("/Cobot/Laser", 1, &LaserCallback);
 
   executor_->SetTrajectory(trajectory);
-  std::atexit(exiting);
+  signal(SIGINT, exiting);
 
   RateLoop loop(20.0);
   while (ros::ok()) {
