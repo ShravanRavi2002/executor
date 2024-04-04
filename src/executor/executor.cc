@@ -20,6 +20,27 @@ Executor::Executor(ros::NodeHandle* n) {
     ros_helpers::InitRosHeader("drive", &drive_msg_.header);
 }
 
+
+void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, vector2f robot_loc, float robot_angle, vector2f cart_loc, float cart_angle) {
+   std::ofstream scan_file("scan.csv", std::ios::app);
+   for (const auto& point : cloud) {
+        scan_file << "(" << point[0] << "," << point[1] << ") ";
+    }
+    scan_file << endl;
+    scan_file.close();
+
+    std::ofstream loc_file("location.csv", std::ios::app);
+    loc_file << robot_loc[0] <<  "," << robot_loc[1] <<  "," << robot_angle << "," << cart_loc[0] <<  "," << cart_loc[1] << "," <<  cart_angle << endl;
+    loc_file.close();
+}
+
+
+
+void Executor::UpdateCartographerOdometry(const Eigen::Vector2f& loc, float angle) {
+  cart_loc_ = vector2f(loc.x(), loc.y());
+  cart_angle_ = angle;
+}
+
 void Executor::UpdateOdometry(const Eigen::Vector2f& loc,
                                 float angle,
                                 const Eigen::Vector2f& vel,
@@ -35,29 +56,33 @@ void Executor::UpdateOdometry(const Eigen::Vector2f& loc,
 
     trajectory_odom_start_ = odom_start_loc_;
     trajectory_odom_angle_start_ = odom_start_angle_;
-    robot_loc_file.open("trajectory_loc.txt");
+    robot_loc_file.open("trajectory_loc.csv");
     return;
   }
   odom_loc_ = vector2f(loc.x(), loc.y());
   odom_angle_ = angle;
-  // cout << "Loc: " << "(" << loc.x() << " " << loc.y() << ")" << " Angle: " << angle << endl;
+}
+
+void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
+                                   float time) {
+
+  point_cloud_ = cloud;
+
+  if (prev_key_frame_scan_.size() == 0) {
+    prev_key_frame_scan_ = cloud;
+    return;
+  }
+
+  vector2f relative_loc = odom_loc_ - prev_key_frame_loc_;
+  float relative_angle = angle_diff(odom_angle_, prev_key_frame_angle_) * 180 / CV_PI;
+  if (relative_loc.length() > 0.15 || relative_angle > 1000.0) {
+    DumpStateToFile(cloud, odom_loc_, odom_angle_, cart_loc_, cart_angle_);
+  }
 }
 
 
-// void Executor::InterpolateTrajectoryFromWayPoints(std::vector<waypoint> waypoints) {
-
-//     std::vector<double> x, y
-//     for (auto p : waypoints) {
-//         x.push_back(p.loc.x());
-//         y.push_back(p.loc.y());
-//     }
-
-//     spline_traj = gsl_spline_alloc(gsl_interp_cspline, waypoints.size());
-//     gsl_spline_init(spline_traj, x.data(), y.data(), waypoints.size());
-// }
 
 void Executor::SetTrajectory(std::vector<waypoint> trajectory) {
-  std::cout << "Trajectory set with " << trajectory.size() << " waypoints." << std::endl;
   trajectory_ = trajectory;
   trajectory_set_ = true;
 }
@@ -73,17 +98,20 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     float start_angle(0);
 
     // Get current pose from odometry.
-    // cobot->getOdometryLocation(robot_loc, robot_angle);
-    robot_loc = odom_loc_;
-    robot_angle = odom_angle_;
-    // Set starting pose to starting odometry pose.
-    start_loc = trajectory_odom_start_;
-    start_angle = trajectory_odom_angle_start_;
-
-
-    robot_loc = (robot_loc - start_loc).rotate(-start_angle);
-    robot_angle = angle_diff(robot_angle, start_angle);
-    // cout << "Start angle: " <<  start_angle << endl;
+    
+    if (use_cart_localization_) {
+      robot_loc = cart_loc_;
+      robot_angle = cart_angle_;
+      cout << "cart localization" << endl;
+    } else {
+      robot_loc = odom_loc_;
+      robot_angle = odom_angle_;
+      start_loc = trajectory_odom_start_;
+      start_angle = trajectory_odom_angle_start_;
+      robot_loc = (robot_loc - start_loc).rotate(-start_angle);
+      robot_angle = angle_diff(robot_angle, start_angle);
+    }
+    
 
     // Current robot velocity in the trajectory coordinates.
     vector2f robot_vel(0, 0);
@@ -98,7 +126,7 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     robot_vel = robot_vel.rotate(robot_angle);
 
 
-    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 1.5);
+    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 0.75);
     const AccelLimits& ang_limit = AccelLimits(3 * M_PI, 1.5 * M_PI, 3 * M_PI);
 
     // Angular velocity command for the next frame period.
@@ -186,8 +214,6 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
 
 void Executor::Run() {
 
-  // cout << "Running" << endl;
-
     if (!trajectory_started_) {
       if (! (odom_initialized_ && trajectory_set_)) return;
       trajectory_odom_angle_start_ = odom_angle_;
@@ -226,6 +252,19 @@ void Executor::Run() {
     std::cout << "Cmds: " << "x: " << cmds[0] << " y: " << cmds[1] << " t: " << cmds[2] << std::endl;
     std::cout << "Target Loc: " << "(" << target.loc[0] << " " << target.loc[1] << ")" << " Angle: " << target.theta << std::endl;
 
+    float min_accuated_vel = 0.2;
+    if (cmds[0] < min_accuated_vel && cur_spin_index_ % 2 == 0) {
+      cmds[0] *= 2;
+      cmds[0] = std::max(cmds[0], min_accuated_vel);
+    }
+    if (cmds[1] < min_accuated_vel && cur_spin_index_ % 2 == 0) {
+      cmds[1] *= 2;
+      cmds[1] = std::max(cmds[0], min_accuated_vel);
+    }
+    if (cmds[2] < min_accuated_vel && cur_spin_index_ % 2 == 0) {
+      cmds[2] *= 2;
+      cmds[2] = std::max(cmds[0], min_accuated_vel);
+    }
 
     drive_msg_.velocity_x = cmds[0];
     drive_msg_.velocity_y = cmds[1];
@@ -239,6 +278,7 @@ void Executor::Run() {
 
     drive_msg_.header.stamp = ros::Time::now();
     drive_pub_.publish(drive_msg_);
+    cur_spin_index_++;
 }
 
 

@@ -15,6 +15,8 @@
 #include "shared/ros/ros_helpers.h"
 #include "shared/util/timer.h"
 #include "nav_msgs/Odometry.h"
+#include "sensor_msgs/LaserScan.h"
+#include "geometry_msgs/PoseStamped.h"
 
 #include "executor.h"
 
@@ -77,6 +79,27 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
       msg.twist.twist.angular.z);
 }
 
+void CartographerPoseCallback(const geometry_msgs::PoseStamped& msg) {
+  if (FLAGS_v > 0) {
+    printf("CartographerPose t=%f\n", msg.header.stamp.toSec());
+  }
+  executor_->UpdateCartographerOdometry(
+      Eigen::Vector2f(msg.pose.position.x, msg.pose.position.y),
+      2.0 * atan2(msg.pose.orientation.z, msg.pose.orientation.w));
+}
+
+void LaserCallback(const sensor_msgs::LaserScan& msg) {
+  std::vector<Eigen::Vector2f> point_cloud_;
+  int index = 0;
+  for(float angle = msg.angle_min; angle <= msg.angle_max; angle += msg.angle_increment) {
+    float x = msg.ranges[index] * std::cos(angle);
+    float y = msg.ranges[index] * std::sin(angle);
+    index++;
+    point_cloud_.push_back({x, y});
+  }
+  executor_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
+}
+
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
@@ -86,23 +109,46 @@ int main(int argc, char** argv) {
 
   executor_ = new Executor(&n);
 
-  waypoint start = waypoint(vector2f(0.0, 0.0), 0.0);
-  waypoint end = waypoint(vector2f(5.0, 0.0), 0.0);
-  vector2f bounds = vector2f(5.0, 7.0);
-  auto trajectory = generate_random_trajectory(start, end, bounds);
+  std::remove("waypoints.csv");
+  std::remove("scan.csv");
+  std::remove("location.csv");
+  std::remove("trajectory_loc.csv");
+
+  // waypoint start = waypoint(vector2f(0.0, 0.0), 0.0);
+  // waypoint end = waypoint(vector2f(5.0, 0.0), 0.0);
+  // vector2f bounds = vector2f(5.0, 7.0);
+  // auto trajectory = generate_random_trajectory(start, end, bounds);
+  // std::vector<waypoint> trajectory{
+  //   waypoint(vector2f(2.0, 0.0), 0.0),
+  //   waypoint(vector2f(3.0, 1.0), 0.0),
+  //   waypoint(vector2f(4.0, -1.0), 0.0),
+  //   waypoint(vector2f(5.0, 0.0), 0.0)
+  // };
+  std::vector<waypoint> trajectory{
+    waypoint(vector2f(0.0, 1.0), 0.0),
+  };
+  // std::vector<waypoint> trajectory{end};
+
+
   std::cout << "Generated Trajectory:" << std::endl;
-  std::ofstream traj_file("waypoints.txt");
+  std::ofstream traj_file("waypoints.csv");
   for (size_t i = 0; i < trajectory.size(); ++i) {
       traj_file << trajectory[i].loc[0] << "," << trajectory[i].loc[1] << "," << trajectory[i].theta << std::endl;
   }
   traj_file.close();
 
-    ros::Subscriber odom_sub =
-        n.subscribe("/odom", 1, &OdometryCallback);
+  ros::Subscriber odom_sub =
+      n.subscribe("/odom", 1, &OdometryCallback);
+  
+  ros::Subscriber cart_sub =
+      n.subscribe("/tracked_pose", 1, &CartographerPoseCallback);
+
+  ros::Subscriber laser_sub =
+      n.subscribe("/Cobot/Laser", 1, &LaserCallback);
 
   executor_->SetTrajectory(trajectory);
 
-  RateLoop loop(20.0);
+  RateLoop loop(40.0);
   while (ros::ok()) {
     ros::spinOnce();
     executor_->Run();

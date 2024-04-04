@@ -29,9 +29,12 @@ class Executor {
                                 float angle,
                                 const Eigen::Vector2f& vel,
                                 float ang_vel);
+        void UpdateCartographerOdometry(const Eigen::Vector2f& loc,
+                                float angle);
         waypoint FetchNextGoal();
         void SetTrajectory(std::vector<waypoint> trajectory);
-        // void InterpolateTrajectoryFromWayPoints(std::vector<waypoint> waypoints);
+        void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
+                                   float time);
 
     private:
 
@@ -54,8 +57,20 @@ class Executor {
         vector2f trajectory_odom_start_;
         float trajectory_odom_angle_start_;
 
+        vector2f cart_loc_;
+        float cart_angle_;
+        bool use_cart_localization_ = false;
+
+        vector2f prev_key_frame_loc_;
+        float prev_key_frame_angle_;
+        std::vector<Eigen::Vector2f> prev_key_frame_scan_;
+
         std::vector<waypoint> trajectory_;
         size_t trajectory_index_;
+
+        std::vector<Eigen::Vector2f> point_cloud_;
+
+        int cur_spin_index_ = 0;
 
         std::ofstream robot_loc_file;
 
