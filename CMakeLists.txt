@@ -20,10 +20,13 @@ INCLUDE($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 ROSBUILD_INIT()
 SET(ROS_BUILD_STATIC_LIBS true)
 SET(ROS_BUILD_SHARED_LIBS false)
+SET(libpointmatcher_DIR /home/amrl/libpointmatcher)
+SET(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${libpointmatcher_DIR}/build)
 
 FIND_PACKAGE(Eigen3 REQUIRED)
 FIND_PACKAGE(OpenCV REQUIRED)
 FIND_PACKAGE(GTSAM REQUIRED)
+FIND_PACKAGE(libpointmatcher REQUIRED)
 
 MESSAGE(STATUS "ROS-Overrride Build Type: ${CMAKE_BUILD_TYPE}")
 MESSAGE(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
@@ -40,10 +43,12 @@ INCLUDE_DIRECTORIES(src)
 INCLUDE_DIRECTORIES(${OpenCV_INCLUDE_DIRS})
 INCLUDE_DIRECTORIES(${Eigen3_INCLUDE_DIRS})
 INCLUDE_DIRECTORIES(${GTSAM_INCLUDE_DIRS})
+INCLUDE_DIRECTORIES(${libpointmatcher_INCLUDE_DIRS})
 
 ROSBUILD_ADD_EXECUTABLE(executor
                         src/executor/executor_main.cc
                         src/executor/executor.cc
-                        src/executor/motion.cc)
+                        src/executor/motion.cc
+                        src/executor/icp.cc)
 
-TARGET_LINK_LIBRARIES(executor ${libs} ${OpenCV_LIBS} ${Eigen3_LIBS} ${GTSAM_LIBS} gtsam)
+TARGET_LINK_LIBRARIES(executor ${libs} ${OpenCV_LIBS} ${Eigen3_LIBS} ${GTSAM_LIBS} gtsam ${libpointmatcher_LIBRARIES})

@@ -9,6 +9,9 @@
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 
+#include <pointmatcher/PointMatcher.h>
+
+
 
 #include "ros/ros.h"
 #include "motion.h"
@@ -41,6 +44,8 @@ class Executor {
         void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud, float time);
         waypoint ReduceAccuationErrorICP();
         void OptimizePoseGraph();
+        void TestICP(std::vector<Eigen::Vector2f> cloud);
+        void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, Eigen::MatrixXd T, vector2f robot_loc, float robot_angle, vector2f prev_key_frame_loc, float prev_key_frame_angle);
         // void InterpolateTrajectoryFromWayPoints(std::vector<waypoint> waypoints);
 
     private:

@@ -3,6 +3,7 @@
 
 #include "motion.h"
 #include "executor.h"
+#include "icp.h"
 #include "cobot_msgs/CobotDriveMsg.h"
 #include "sensor_msgs/LaserScan.h"
 #include "shared/ros/ros_helpers.h"
@@ -172,7 +173,7 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     return ret;
 }
 
-void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, cv::Matx44d T, vector2f robot_loc, float robot_angle, vector2f prev_key_frame_loc, float prev_key_frame_angle) {
+void Executor::DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, Eigen::MatrixXd T, vector2f robot_loc, float robot_angle, vector2f prev_key_frame_loc, float prev_key_frame_angle) {
    std::ofstream scan_file("scan.csv", std::ios::app);
    for (const auto& point : cloud) {
         scan_file << "(" << point[0] << "," << point[1] << ") ";
@@ -181,8 +182,8 @@ void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, cv::Matx44d T, v
     scan_file.close();
 
     std::ofstream transformation_file("transformation.csv", std::ios::app);
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 4; ++j) {
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
             transformation_file << T(i, j) << ",";
         }
     }
@@ -192,6 +193,11 @@ void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, cv::Matx44d T, v
     std::ofstream loc_file("location.csv", std::ios::app);
     loc_file << robot_loc[0] <<  "," << robot_loc[1] <<  "," << robot_angle << "," << prev_key_frame_loc[0] <<  "," << prev_key_frame_loc[1] << "," <<  prev_key_frame_angle << endl;
     loc_file.close();
+
+    std::ofstream factors("factors.csv", std::ios::app);
+    float angle = std::atan2(T(1, 0), T(0, 0));
+    factors << T(0, 2) << "," << T(1, 2) << "," << angle << "," << odom_loc_[0] << ","  << odom_loc_[1] << "," << odom_angle_ << "," << cur_node_idx << endl;
+    factors.close();
 }
 
 cv::Mat Transform2DLidarToOpenCVWithNormals(const std::vector<Eigen::Vector2f> & cloud, float z) {
@@ -214,9 +220,46 @@ cv::Mat Transform2DLidarToOpenCVWithNormals(const std::vector<Eigen::Vector2f> &
   return pc_with_normals;
 }
 
+void Executor::TestICP(std::vector<Eigen::Vector2f> cloud) {
+
+  float theta = M_PI / 4; // 45 degrees
+
+  // Define translation vector
+  Eigen::Vector2f translation(1, 2);
+
+  // Define rotation matrix
+  Eigen::Matrix2f rotation;
+  rotation << cos(theta), -sin(theta),
+              sin(theta), cos(theta);
+
+  Eigen::Matrix3f T_t;
+  T_t << rotation(0,0), rotation(0,1), translation(0),
+        rotation(1,0), rotation(1,1), translation(1),
+        0,             0,             1;
+
+  std::vector<Eigen::Vector2f> transformed_cloud;
+  for (Eigen::Vector2f& p : cloud) {
+    Eigen::Vector3f p_t(p.x(), p.y(), 1);
+    p_t = T_t * p_t;
+    transformed_cloud.push_back(Eigen::Vector2f(p_t[0], p_t[1]));
+  }
+
+   Eigen::MatrixXd src(cloud.size(), 2);
+   Eigen::MatrixXd dst(transformed_cloud.size(), 2);
+
+   for (uint i = 0; i < cloud.size(); ++i) {
+        src.row(i) = cloud[i].cast<double>().transpose();
+        dst.row(i) = transformed_cloud[i].cast<double>().transpose();
+    }
+
+  Eigen::MatrixXd T = icp(dst, src);
+  cout << T << endl;
+}
+
 void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
                                    float time) {
 
+  // TestICP(cloud);
   point_cloud_ = cloud;
 
   if (prev_key_frame_scan_.size() == 0) {
@@ -240,26 +283,21 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
     }
 
    
-    cv::Mat src = Transform2DLidarToOpenCVWithNormals(prev_scan, 0.0f);
-    cv::Mat dst = Transform2DLidarToOpenCVWithNormals(cur_scan, 0.1f);
+    Eigen::MatrixXd src(prev_scan.size(), 2);
+    Eigen::MatrixXd dst(cur_scan.size(), 2);
+    for (uint i = 0; i < prev_scan.size(); ++i) {
+        src.row(i) = prev_scan[i].cast<double>().transpose();
+        dst.row(i) = cur_scan[i].cast<double>().transpose();
+    }
 
-    double error;
-    cv::Matx44d T;
-    icp_solver_->registerModelToScene(src, dst, error, T);
-    T(2, 3) -= 0.1;
+    Eigen::MatrixXd T = icp(src, dst);
 
-    cv::Matx33d R = T.get_minor<3, 3>(0, 0);
-    
-    cv::Vec3d euler_angles;
-    cv::Rodrigues(R, euler_angles);
-    double angle = euler_angles[2];
-    Eigen::Vector2f t(T(0, 3), T(1, 3));
-
+    cout << T << endl;
 
     prev_key_frame_scan_ = cloud;
     prev_key_frame_loc_ = odom_loc_;
     prev_key_frame_angle_ = odom_angle_;
-    start_to_prev_key_frame = start_to_prev_key_frame * T;
+    // start_to_prev_key_frame = start_to_prev_key_frame * T;
     // cout << "Moving key frame" << endl;
     // std::cout << "Transformation:" << std::endl;
     // for (int i = 0; i < 4; ++i) {
@@ -269,9 +307,12 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
     //     std::cout << std::endl;
     // }
 
+    float angle = std::atan2(T(1, 0), T(0, 0));
+
     DumpStateToFile(cloud, T, odom_loc_, odom_angle_, prev_key_frame_loc_, prev_key_frame_angle_);
-    gtsam::Pose2 relative_motion_from_icp = gtsam::Pose2(-t.x(), -t.y(), -angle);
+    gtsam::Pose2 relative_motion_from_icp = gtsam::Pose2(T(0, 2), T(1, 2), angle);
     cout << "Adding Constraint: " << relative_motion_from_icp << endl;
+
     pose_graph_.add(gtsam::BetweenFactor<gtsam::Pose2>(cur_node_idx, cur_node_idx + 1, relative_motion_from_icp, odometry_noise_));
     raw_odometry_.insert(cur_node_idx + 1, gtsam::Pose2(odom_loc_[0], odom_loc_[1], odom_angle_));
     cur_node_idx++;
