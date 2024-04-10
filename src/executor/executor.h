@@ -39,8 +39,9 @@ class Executor {
         waypoint FetchNextGoal();
         void SetTrajectory(std::vector<waypoint> trajectory);
         void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud, float time);
-        waypoint ReduceAccuationErrorICP();
         void OptimizePoseGraph();
+        void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, cv::Matx44d T, vector2f robot_loc, float robot_angle, vector2f prev_key_frame_loc, float prev_key_frame_angle);
+    
         // void InterpolateTrajectoryFromWayPoints(std::vector<waypoint> waypoints);
 
     private:

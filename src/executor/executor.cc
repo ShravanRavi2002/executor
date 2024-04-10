@@ -86,8 +86,8 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     robot_vel = robot_vel.rotate(robot_angle);
 
 
-    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 1.0);
-    const AccelLimits& ang_limit = AccelLimits(3 * M_PI, 1.5 * M_PI, 3 * M_PI);
+    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 0.5);
+    const AccelLimits& ang_limit = AccelLimits(1 * M_PI, 1.5 * M_PI,  M_PI / 4);
 
     // Angular velocity command for the next frame period.
 
@@ -172,7 +172,7 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     return ret;
 }
 
-void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, cv::Matx44d T, vector2f robot_loc, float robot_angle, vector2f prev_key_frame_loc, float prev_key_frame_angle) {
+void Executor::DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, cv::Matx44d T, vector2f robot_loc, float robot_angle, vector2f loc_factor, float angle_factor) {
    std::ofstream scan_file("scan.csv", std::ios::app);
    for (const auto& point : cloud) {
         scan_file << "(" << point[0] << "," << point[1] << ") ";
@@ -190,8 +190,12 @@ void DumpStateToFile(const std::vector<Eigen::Vector2f>& cloud, cv::Matx44d T, v
     transformation_file.close();
 
     std::ofstream loc_file("location.csv", std::ios::app);
-    loc_file << robot_loc[0] <<  "," << robot_loc[1] <<  "," << robot_angle << "," << prev_key_frame_loc[0] <<  "," << prev_key_frame_loc[1] << "," <<  prev_key_frame_angle << endl;
+    loc_file << robot_loc[0] <<  "," << robot_loc[1] <<  "," << robot_angle << "," << prev_key_frame_loc_[0] <<  "," << prev_key_frame_loc_[1] << "," <<  prev_key_frame_angle_ << endl;
     loc_file.close();
+
+    std::ofstream factors("factors.csv", std::ios::app);
+    factors << loc_factor[0] << "," << loc_factor[1] << "," << angle_factor << "," << odom_loc_[0] << ","  << odom_loc_[1] << "," << odom_angle_ << "," << cur_node_idx << endl;
+    factors.close();
 }
 
 cv::Mat Transform2DLidarToOpenCVWithNormals(const std::vector<Eigen::Vector2f> & cloud, float z) {
@@ -239,6 +243,8 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
       }
     }
 
+    cout << "Bounded Scan Size: " << prev_scan.size() << endl;
+
    
     cv::Mat src = Transform2DLidarToOpenCVWithNormals(prev_scan, 0.0f);
     cv::Mat dst = Transform2DLidarToOpenCVWithNormals(cur_scan, 0.1f);
@@ -248,57 +254,30 @@ void Executor::ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
     icp_solver_->registerModelToScene(src, dst, error, T);
     T(2, 3) -= 0.1;
 
-    cv::Matx33d R = T.get_minor<3, 3>(0, 0);
-    
-    cv::Vec3d euler_angles;
-    cv::Rodrigues(R, euler_angles);
-    double angle = euler_angles[2];
+    // float angle = std::atan2(T(1, 0), T(0, 0));
     Eigen::Vector2f t(T(0, 3), T(1, 3));
 
+
+    vector2f relative_loc = odom_loc_ - prev_key_frame_loc_;
+    float relative_angle = angle_diff(odom_angle_, prev_key_frame_angle_);
+    cout << relative_loc[0] << " " << relative_loc[1] << endl;
+    DumpStateToFile(cloud, T, odom_loc_, odom_angle_, relative_loc, relative_angle);
+    gtsam::Pose2 relative_motion_from_icp = gtsam::Pose2(-t.x(), -t.y(), relative_angle);
+    cout << "Adding Constraint: " << relative_motion_from_icp << endl;
+    pose_graph_.add(gtsam::BetweenFactor<gtsam::Pose2>(cur_node_idx, cur_node_idx + 1, relative_motion_from_icp, odometry_noise_));
+
+    vector2f lidar_displacement = vector2f(std::cos(odom_angle_) * 0.17, std::sin(odom_angle_) * 0.17);
+    relative_loc = relative_loc + lidar_displacement;
+    raw_odometry_.insert(cur_node_idx + 1, gtsam::Pose2(relative_loc[0], relative_loc[1], relative_angle));
+    cur_node_idx++;
 
     prev_key_frame_scan_ = cloud;
     prev_key_frame_loc_ = odom_loc_;
     prev_key_frame_angle_ = odom_angle_;
     start_to_prev_key_frame = start_to_prev_key_frame * T;
-    // cout << "Moving key frame" << endl;
-    // std::cout << "Transformation:" << std::endl;
-    // for (int i = 0; i < 4; ++i) {
-    //     for (int j = 0; j < 4; ++j) {
-    //         std::cout << T(i, j) << "\t";
-    //     }
-    //     std::cout << std::endl;
-    // }
-
-    DumpStateToFile(cloud, T, odom_loc_, odom_angle_, prev_key_frame_loc_, prev_key_frame_angle_);
-    gtsam::Pose2 relative_motion_from_icp = gtsam::Pose2(-t.x(), -t.y(), -angle);
-    cout << "Adding Constraint: " << relative_motion_from_icp << endl;
-    pose_graph_.add(gtsam::BetweenFactor<gtsam::Pose2>(cur_node_idx, cur_node_idx + 1, relative_motion_from_icp, odometry_noise_));
-    raw_odometry_.insert(cur_node_idx + 1, gtsam::Pose2(odom_loc_[0], odom_loc_[1], odom_angle_));
-    cur_node_idx++;
   }
 }
 
-waypoint Executor::ReduceAccuationErrorICP() {
-  vector2f robot_loc_offset_from_key_frame = odom_loc_ - prev_key_frame_loc_;
-  float robot_angle_offset_from_key_frame = angle_diff(odom_angle_, prev_key_frame_angle_);
-
-  cv::Vec4d homogeneous_loc(odom_loc_[0], odom_loc_[1], 0, 1);
-  cv::Vec4d transformed_point = start_to_prev_key_frame * homogeneous_loc;
-
-  double x_prime = transformed_point[0] / transformed_point[3];
-  double y_prime = transformed_point[1] / transformed_point[3];
-
-  vector2f true_odom(x_prime, y_prime);
-  true_odom += robot_loc_offset_from_key_frame;
-
-  cv::Matx33d R = start_to_prev_key_frame.get_minor<3, 3>(0, 0);
-  cv::Vec3d euler_angles;
-  cv::Rodrigues(R, euler_angles);
-  float angle = euler_angles[2] * 180.0 / CV_PI;
-
-  float true_angle = angle + robot_angle_offset_from_key_frame;
-  return waypoint(true_odom, true_angle);
-}
 
 void Executor::OptimizePoseGraph() {
   // Step 1: Optimize the Factor Graph
@@ -364,18 +343,9 @@ void Executor::Run() {
 
     waypoint target = trajectory_[trajectory_index_];
 
-    // std::cout << "Current Loc: " << "(" << relative_loc[0] << " " << relative_loc[1] << ")" << " Angle: " << relative_angle  << std::endl;
-
     robot_loc_file << relative_loc[0] << "," << relative_loc[1] << "," << relative_angle << std::endl;
-
-    // std::cout << "Goal Loc: " << "(" << (target.loc - relative_loc)[0] << " " << (target.loc - relative_loc)[1] << ")" << " Angle: " << angle_diff(target.theta, relative_angle)  << std::endl;
     std::vector<float> cmds = Run2dTOC(target.loc, target.theta);
 
-    // std::cout << "Cmds: " << "x: " << cmds[0] << " y: " << cmds[1] << " t: " << cmds[2] << std::endl;
-    // std::cout << "Target Loc: " << "(" << target.loc[0] << " " << target.loc[1] << ")" << " Angle: " << target.theta << std::endl;
-
-    // waypoint error_corrected_point = ReduceAccuationErrorICP();
-    // std::cout << "Error Corrected Loc: " << "(" << error_corrected_point.loc[0] << " " << error_corrected_point.loc[1] << ")" << " Angle: " << error_corrected_point.theta << std::endl;
 
     drive_msg_.velocity_x = cmds[0];
     drive_msg_.velocity_y = cmds[1];

@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
   std::remove("location.csv");
   std::remove("scan.csv");
   std::remove("optimized_poses.csv");
+  std::remove("factors.csv");
 
   executor_ = new Executor(&n);
 
