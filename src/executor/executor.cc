@@ -126,8 +126,8 @@ std::vector<float> Executor::Run2dTOC(const vector2f& target_loc, const float& t
     robot_vel = robot_vel.rotate(robot_angle);
 
 
-    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 0.75);
-    const AccelLimits& ang_limit = AccelLimits(3 * M_PI, 1.5 * M_PI, 3 * M_PI);
+    const AccelLimits& trans_limit = AccelLimits(1.0, 2.5, 0.5);
+    const AccelLimits& ang_limit = AccelLimits( M_PI, M_PI, 3 * M_PI / 4);
 
     // Angular velocity command for the next frame period.
 

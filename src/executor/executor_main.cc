@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
   //   waypoint(vector2f(5.0, 0.0), 0.0)
   // };
   std::vector<waypoint> trajectory{
-    waypoint(vector2f(0.0, 1.0), 0.0),
+    waypoint(vector2f(-0.5, 1.0), -CV_PI / 2),
   };
   // std::vector<waypoint> trajectory{end};
 
